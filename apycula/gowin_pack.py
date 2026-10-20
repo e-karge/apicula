@@ -1727,6 +1727,10 @@ class Device:
         """ Default IO_TYPE for unused IO """
         return "LVCMOS18"
 
+    def get_unused_io_type(self, bank_desc: BankDesc) -> str:
+        """ IO_TYPE for the unused IOs of a used bank """
+        return bank_desc.io_type
+
     def get_unused_io_attrvals(self, io_cfg: IoCfg, bank: BankDesc) -> list[AttrVal]:
         """ Attributes for unused IO """
         return []
@@ -1770,7 +1774,7 @@ class Device:
                 #print(attrval)
                 self.chipdb.get_iob_attr_val(attrval, av)
             #print(bank_desc.io_type, bank_desc.bank_vccio)
-            self.chipdb.get_iob_attr_val(AttrVal("IO_TYPE", bank_desc.io_type), av)
+            self.chipdb.get_iob_attr_val(AttrVal("IO_TYPE", self.get_unused_io_type(bank_desc)), av)
             self.chipdb.get_iob_attr_val(AttrVal("BANK_VCCIO", bank_desc.bank_vccio), av)
             fuses += self.get_iob_fuses(io_cfg.x, io_cfg.y, io_cfg.idx_str, av)
         return fuses
@@ -5524,8 +5528,9 @@ class GW5A(Device):
 
     def get_unused_io_attrvals(self, io_cfg: IoCfg, bank_desc: BankDesc) -> list[AttrVal]:
         """ Attributes for unused IO """
-        attrvals = [AttrVal('OPENDRAIN', 'OFF'), AttrVal('IO_TYPE', bank_desc.io_type)]
-        if bank_desc.io_type == 'LVCMOS10':
+        io_type = self.get_unused_io_type(bank_desc)
+        attrvals = [AttrVal('OPENDRAIN', 'OFF'), AttrVal('IO_TYPE', io_type)]
+        if io_type == 'LVCMOS10':
             drive = '4'
         else:
             drive = '8'
@@ -5545,6 +5550,17 @@ class GW5A(Device):
         attrvals += pullup_io
         return attrvals
 
+    def uses_vref(self, io_type: str) -> bool:
+        """ Single ended SSTL and HSTL (SSTL15, HSTL18_I...), not SSTL15D, HSTL18D_I... """
+        return re.fullmatch(r'(SSTL|HSTL)\d+(_I|_II)?', io_type or '') is not None
+
+    def get_unused_io_type(self, bank_desc: BankDesc) -> str:
+        """ Unused IOs of SSTL and HSTL banks are set up as LVCMOS of the bank voltage """
+        if self.uses_vref(bank_desc.io_type):
+            lvcmos = {'1.2': 'LVCMOS12', '1.5': 'LVCMOS15', '1.8': 'LVCMOS18', '2.5': 'LVCMOS25', '3.3': 'LVCMOS33'}
+            return lvcmos.get(bank_desc.bank_vccio, bank_desc.io_type)
+        return bank_desc.io_type
+
     def check_io_banks(self):
         """ Check BANK IO_TYPE and VCCIO """
         super().check_io_banks()
@@ -5556,6 +5572,15 @@ class GW5A(Device):
                     bank_desc.set_attr("LVDS_OUT", "OFF")
                 if 'PULL_STRENGTH' not in bank_desc.attrs:
                     bank_desc.set_attr('PULL_STRENGTH', self.get_default_pull_strength())
+                # SSTL and HSTL inputs compare against the internal reference
+                # voltage generator, which needs the bank VCCIO of the IO type
+                # even when the bank has only inputs
+                if self.uses_vref(bank_desc.io_type):
+                    if any(bel.cell.typ in {'IBUF', 'IOBUF'} for bel in bank_desc.bels):
+                        bank_desc.set_attr('VREF', 'INTERNAL')
+                        bank_desc.set_attr('PADDI', 'PADDI')
+                    if 'BANK_VCCIO' not in bank_desc.set_attr_bels:
+                        bank_desc.set_bank_vccio_by_io_type(bank_desc.io_type)
 
     def get_iob_fuses(self, x: int, y: int, idx_str: str, av: set[int]) -> list[CellFuseBits]:
         """ In the 5A series, A and B blocks have fuses in different cells. To
