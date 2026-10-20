@@ -5044,6 +5044,35 @@ _gw5_fuse_cell_offset = {
             }
 }
 
+# The registers in the IO blocks don't use the D0, TX, Q4 and CE wires of the
+# IOLOGIC like the GW1N/GW2A do: the vendor connects the output register to
+# the D7 input, the output enable register to the OE wire of the IOB, takes
+# the input register from the Q8 output and the CE from CE0 of the cell with
+# the fuses (the IOB B fuse cell for B). These become extra bel pins.
+# Needs the portmaps, so it is called after dat_portmap().
+def fill_GW5A_iob_reg_pins(dev):
+    for row in range(dev.rows):
+        for col in range(dev.cols):
+            tile = dev[row, col]
+            if 'IOBB' not in tile.bels:
+                continue
+            for buf in 'AB':
+                iol = tile.bels.get(f'IOLOGIC{buf}')
+                iob = tile.bels.get(f'IOB{buf}')
+                if iol is None or iob is None or 'D7' not in iol.portmap or 'Q8' not in iol.portmap:
+                    continue
+                iol.portmap['OREG_D'] = iol.portmap['D7']
+                iol.portmap['TREG_D'] = iob.portmap['OE']
+                iol.portmap['IREG_Q'] = iol.portmap['Q8']
+                if buf == 'A':
+                    iol.portmap['REG_CE'] = 'CE0'
+                else:
+                    r_off, c_off = tile.bels['IOBB'].fuse_cell_offset
+                    node_name = f'X{row + r_off}Y{col + c_off}/CE0'
+                    add_node(dev, node_name, "IO_I", row, col, 'IOLOGICCE0')
+                    add_node(dev, node_name, "IO_I", row + r_off, col + c_off, 'CE0')
+                    iol.portmap['REG_CE'] = 'IOLOGICCE0'
+
 def fill_GW5A_io_bels(dev):
     bels_to_remove = []
     def fix_iobb():
