@@ -1,0 +1,33 @@
+# GW5AST-138C PLL input ports: (PllIn slot, port) - fuzzed with Gowin IDE 1.9.10.03,
+# see NOTES-pll.md. Multi-bit ports are numbered like the PLLA ones (FBDSEL0..5).
+_pll138_inputs = [
+    (0, 'RESET'), (2, 'RESET_I'), (4, 'CLKIN'), (5, 'CLKFB'), (6, 'FBDSEL0'), (7, 'FBDSEL1'),
+    (8, 'FBDSEL2'), (9, 'FBDSEL3'), (10, 'FBDSEL4'), (11, 'FBDSEL5'), (12, 'IDSEL0'),
+    (13, 'IDSEL1'), (14, 'IDSEL2'), (15, 'IDSEL3'), (16, 'IDSEL4'), (17, 'IDSEL5'), (83, 'ICPSEL0'),
+    (84, 'ICPSEL1'), (85, 'ICPSEL2'), (86, 'ICPSEL3'), (87, 'ICPSEL4'), (88, 'LPFRES0'),
+    (89, 'LPFRES1'), (90, 'LPFRES2'), (91, 'PSSEL0'), (92, 'PSSEL1'), (93, 'PSDIR'),
+    (94, 'PSPULSE'), (100, 'PSSEL2'), (101, 'PLLPWD'), (102, 'RESET_O'), (103, 'MDSEL0'),
+    (104, 'MDSEL1'), (105, 'MDSEL2'), (106, 'MDSEL3'), (107, 'MDSEL4'), (108, 'MDSEL5'),
+    (109, 'MDSEL6'), (110, 'MDSEL_FRAC0'), (111, 'MDSEL_FRAC1'), (112, 'MDSEL_FRAC2'),
+    (113, 'ODSEL00'), (114, 'ODSEL01'), (115, 'ODSEL02'), (116, 'ODSEL03'), (117, 'ODSEL04'),
+    (118, 'ODSEL05'), (119, 'ODSEL06'), (120, 'ODSEL0_FRAC0'), (121, 'ODSEL0_FRAC1'),
+    (122, 'ODSEL0_FRAC2'), (123, 'ODSEL10'), (124, 'ODSEL11'), (125, 'ODSEL12'), (126, 'ODSEL13'),
+    (127, 'ODSEL14'), (128, 'ODSEL15'), (129, 'ODSEL16'), (130, 'ODSEL20'), (131, 'ODSEL21'),
+    (132, 'ODSEL22'), (133, 'ODSEL23'), (134, 'ODSEL24'), (135, 'ODSEL25'), (136, 'ODSEL26'),
+    (137, 'ODSEL30'), (138, 'ODSEL31'), (139, 'ODSEL32'), (140, 'ODSEL33'), (141, 'ODSEL34'),
+    (142, 'ODSEL35'), (143, 'ODSEL36'), (144, 'ODSEL40'), (145, 'ODSEL41'), (146, 'ODSEL42'),
+    (147, 'ODSEL43'), (148, 'ODSEL44'), (149, 'ODSEL45'), (150, 'ODSEL46'), (151, 'ODSEL50'),
+    (152, 'ODSEL51'), (153, 'ODSEL52'), (154, 'ODSEL53'), (155, 'ODSEL54'), (156, 'ODSEL55'),
+    (157, 'ODSEL56'), (158, 'ODSEL60'), (159, 'ODSEL61'), (160, 'ODSEL62'), (161, 'ODSEL63'),
+    (162, 'ODSEL64'), (163, 'ODSEL65'), (164, 'ODSEL66'), (165, 'DT00'), (166, 'DT01'),
+    (167, 'DT02'), (168, 'DT03'), (169, 'DT10'), (170, 'DT11'), (171, 'DT12'), (172, 'DT13'),
+    (173, 'DT20'), (174, 'DT21'), (175, 'DT22'), (176, 'DT23'), (177, 'DT30'), (178, 'DT31'),
+    (179, 'DT32'), (180, 'DT33'), (181, 'LPFCAP0'), (182, 'LPFCAP1'), (183, 'ENCLK0'),
+    (184, 'ENCLK1'), (185, 'ENCLK2'), (186, 'ENCLK3'), (187, 'ENCLK4'), (188, 'ENCLK5'),
+    (189, 'ENCLK6'), (190, 'ICPSEL5'), (191, 'SSCPOL'), (192, 'SSCON'), (193, 'SSCMDSEL0'),
+    (194, 'SSCMDSEL1'), (195, 'SSCMDSEL2'), (196, 'SSCMDSEL3'), (197, 'SSCMDSEL4'),
+    (198, 'SSCMDSEL5'), (199, 'SSCMDSEL6'), (200, 'SSCMDSEL_FRAC0'), (201, 'SSCMDSEL_FRAC1'),
+    (202, 'SSCMDSEL_FRAC2'),]
+_pll138_outputs = [(1, 'LOCK'), (10, 'CLKOUT0'), (11, 'CLKOUT1'), (12, 'CLKOUT2'), (13, 'CLKOUT3'),
+                   (14, 'CLKOUT4'), (15, 'CLKOUT5'), (16, 'CLKOUT6')]
+# 131 inputs
