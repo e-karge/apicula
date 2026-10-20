@@ -5,7 +5,6 @@ import itertools
 import json
 import math
 import re
-import sys
 
 from apycula import attrids
 from apycula import bitmatrix
@@ -1145,11 +1144,6 @@ class Device:
         orig_io_type = dict(_convert_legacy_io_cell_attr(attr, val) for attr, val in bel.cell.attrs.items()).get('IO_TYPE')
         if orig_io_type in BankDesc._vcc_ios:
             flags['IO_TYPE_VCCIO'] = BankDesc._vcc_ios[orig_io_type]
-        # single ended SSTL and HSTL inputs compare against VREF, which can't be configured yet
-        if (mod_cell.attrs.get('IO_TYPE') in {'SSTL', 'HSTL'} and bel.cell.typ in {'IBUF', 'IOBUF'}
-                and not bel.is_diff_io()):
-            print(f"Warning: X{bel.x}Y{bel.y}/IOB{bel.idx_str} ({bel.cell.name}) is a {orig_io_type} input, "
-                  "but VREF is not supported: the input has no reference voltage.", file=sys.stderr)
         mod_bel = IoBelDesc(bel.x, bel.y, bel.idx_str, mod_cell, flags)
         return mod_bel
 
@@ -1812,9 +1806,14 @@ class Device:
                     # BANK_VCCIO wasn't set
                     default_io_type = self.get_default_io_type()
                     bank_desc.set_attr("IO_TYPE", default_io_type)
+                # SSTL and HSTL banks: internal reference voltage generator at half VCCIO,
+                # which needs the bank VCCIO even when the bank has only inputs
+                has_vref = bank_desc.io_type in {'SSTL', 'HSTL'}
+                if has_vref:
+                    bank_desc.set_attr("IO_BANK", "I50")
                 if not bank_desc.has_lvds_outputs:
                     if not bank_desc.bank_vccio:
-                        if bank_desc.has_outputs:
+                        if bank_desc.has_outputs or has_vref:
                             bank_desc.set_bank_vccio_by_io_type(bank_desc.io_type)
                         else:
                             bank_desc.set_bank_vccio_by_io_type(self.get_default_io_type())
