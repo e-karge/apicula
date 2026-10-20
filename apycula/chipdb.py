@@ -4588,6 +4588,9 @@ def set_chip_flags(dev, device):
         dev.chip_flags.append("NEED_BSRAM_RESET_FIX")
         dev.chip_flags.append("NEED_CFGPINS_INVERSION")
         dev.chip_flags.append("HAS_5A_DSP")
+        # IDDR/IDES outputs on Q15.. like the 25A: IDDR Q0/Q1 = F7/OF0 as
+        # the vendor routes them
+        dev.chip_flags.append("HAS_5A_IDES")
 
     if device in {'GW5A-25A'}:
         dev.dcs_prefix = "CLKIN"
