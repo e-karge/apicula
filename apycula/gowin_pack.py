@@ -1859,6 +1859,21 @@ class Device:
                 self.chipdb.get_iob_attr_val(AttrVal("TO", "SIG"), av)
         else:
             self.chipdb.get_iob_attr_val(AttrVal("ODMUX_1", "1"), av)
+        # the output enable comes from the register in the IO block
+        if self.has_iob_reg(bel.x, bel.y, bel.idx_str, 'TREG_TYPE'):
+            self.chipdb.get_iob_attr_val(AttrVal("TRI_MUX", "TSREG"), av)
+
+    def has_iob_reg(self, x: int, y: int, idx_str: str, reg_attr: str) -> bool:
+        """ Is there a register (IREG_TYPE, OREG_TYPE, TREG_TYPE) in the IO block? """
+        if not hasattr(self, 'iob_regs'):
+            self.iob_regs = set()
+            for cell in self.pnr.in_file['modules'][self.pnr.top_module_name]['cells'].values():
+                if cell['type'] in {'IOLOGICI_EMPTY', 'IOLOGICO_EMPTY'}:
+                    loc = re.match(r"X(\d+)Y(\d+)/IOLOGIC([AB])", cell['attributes']['NEXTPNR_BEL'])
+                    for attr in ('IREG_TYPE', 'OREG_TYPE', 'TREG_TYPE'):
+                        if attr in cell['attributes']:
+                            self.iob_regs.add((int(loc[1]), int(loc[2]), loc[3], attr))
+        return (x, y, idx_str, reg_attr) in self.iob_regs
 
     def process_OBUF(self, bank_desc: BankDesc, bel: IoBelDesc) -> list[CellFuseBits]:
         av = self.set_io_attrvals(bel, self.default_obuf_attrs)
