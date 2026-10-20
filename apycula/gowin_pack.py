@@ -833,6 +833,8 @@ class BankDesc:
     """ IO bank """
     _vcc_ios = {'LVCMOS10': '1.0', 'LVCMOS12': '1.2', 'LVCMOS15': '1.5', 'LVCMOS18': '1.8', 'LVCMOS25': '2.5',
                 'LVCMOS33': '3.3', 'LVDS25': '2.5', 'LVDS25E': '2.5', 'LVCMOS33D': '3.3', 'LVCMOS_D': '3.3', 'MIPI': '1.2',
+                'LVCMOS12D': '1.2', 'LVCMOS15D': '1.5', 'LVCMOS18D': '1.8', 'LVCMOS25D': '2.5',
+                'BLVDS25E': '2.5', 'MLVDS25E': '2.5', 'RSDS': '2.5', 'RSDS25E': '2.5', 'MINILVDS': '2.5', 'PPLVDS': '2.5',
                 'SSTL15': '1.5', 'SSTL18_I': '1.8', 'SSTL18_II': '1.8', 'SSTL25_I': '2.5', 'SSTL25_II': '2.5',
                 'SSTL33_I': '3.3', 'SSTL33_II': '3.3', 'SSTL15D': '1.5', 'SSTL18D_I': '1.8', 'SSTL18D_II': '1.8',
                 'SSTL25D_I': '2.5', 'SSTL25D_II': '2.5', 'SSTL33D_I': '3.3', 'SSTL33D_II': '3.3', 'MIPI': '2.5'}
@@ -5296,6 +5298,9 @@ class GW5A(Device):
         # { slot_idx: bitmap }
         self.extra_slots = dict()
         # IO
+        # The 5A tables name the IO standards individually (SSTL15, LVCMOS15D,
+        # BLVDS25E...), only LVTTL33 is an alias
+        self.io_type_alias = {frozenset({"LVTTL33"}): "LVCMOS33"}
         self._no_pullup_cfgs = { f'D{x:02}' for x in range(8, 32)}
         self._no_pullup_cfgs.update({'INITDLY0', 'INITDLY1'})
         self.default_ibuf_attrs = [('PADDI', 'PADDI'), ('HYSTERESIS', 'NONE'), ('PULLMODE', 'UP'), ('SLEWRATE', 'SLOW'),
