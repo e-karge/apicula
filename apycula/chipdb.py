@@ -5244,6 +5244,9 @@ def dat_portmap(dat, dev, device):
                             elif nam == 'FCLK':
                                 # dummy Input, we'll make a special pips for it
                                 bel.portmap[nam] = "FCLK"
+                        # CE of the registers in the IO block: the vendor
+                        # routes it to these wires, not to the VALUE input
+                        bel.portmap['CE'] = {'A': "CE0", 'B': "CE1"}[buf]
                         # these inputs for IEM window selection
                         bel.portmap['WINSIZE0'] = {'A':"C6", 'B':"C7"}[buf]
                         bel.portmap['WINSIZE1'] = {'A':"D6", 'B':"D7"}[buf]
