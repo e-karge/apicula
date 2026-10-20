@@ -2270,6 +2270,14 @@ class Device:
     def make_IologicBelDesc(self, bel: BelDesc) -> IologicBelDesc:
         return IologicBelDesc(bel.x, bel.y, bel.idx_str, bel.cell, bel.fclk, bel.main_cell_outmode, bel.main_cell_inmode)
 
+    def get_iologic_cell_fuses(self, bel: IologicBelDesc, av: set[int]) -> list[CellFuseBits]:
+        """ The IOLOGIC fuses for the attributes av, in the cell they belong to """
+        x, y = self.get_iologic_fuse_cell(bel)
+        bits = self.chipdb.get_iologic_fuses(x, y, av, bel.idx_str)
+        if bits:
+            return [CellFuseBits(x, y, bits)]
+        return []
+
     def common_out_iologic_handler(self, bel: IologicBelDesc) -> list[CellFuseBits]:
         iol_bel = self.make_IologicBelDesc(bel)
         iol_bel = self.set_iologic_bel_fclk(iol_bel)
@@ -2277,11 +2285,7 @@ class Device:
         attr_vals += self.get_out_iologic_attrs(iol_bel)
 
         av = self.set_iologic_attrvals(iol_bel, attr_vals)
-        fuses = []
-        bits = self.chipdb.get_iologic_fuses(iol_bel.x, iol_bel.y, av, iol_bel.idx_str)
-        if bits:
-            fuses.append(CellFuseBits(iol_bel.x, iol_bel.y, bits))
-        return fuses
+        return self.get_iologic_cell_fuses(iol_bel, av)
 
     def common_in_iologic_handler(self, bel: IologicBelDesc) -> list[CellFuseBits]:
         iol_bel = self.make_IologicBelDesc(bel)
@@ -2290,11 +2294,7 @@ class Device:
         attr_vals += self.get_in_iologic_attrs(iol_bel)
 
         av = self.set_iologic_attrvals(iol_bel, attr_vals)
-        fuses = []
-        bits = self.chipdb.get_iologic_fuses(iol_bel.x, iol_bel.y, av, iol_bel.idx_str)
-        if bits:
-            fuses.append(CellFuseBits(iol_bel.x, iol_bel.y, bits))
-        return fuses
+        return self.get_iologic_cell_fuses(iol_bel, av)
 
 
     def get_ODDR_fuses(self, bel: BelDesc) -> list[CellFuseBits]:
@@ -2303,11 +2303,7 @@ class Device:
         attr_vals += self.get_out_iologic_attrs(iol_bel)
 
         av = self.set_iologic_attrvals(iol_bel, attr_vals)
-        fuses = []
-        bits = self.chipdb.get_iologic_fuses(iol_bel.x, iol_bel.y, av, iol_bel.idx_str)
-        if bits:
-            fuses.append(CellFuseBits(iol_bel.x, iol_bel.y, bits))
-        return fuses
+        return self.get_iologic_cell_fuses(iol_bel, av)
 
     def get_ODDRC_fuses(self, bel: BelDesc) -> list[CellFuseBits]:
         return self.get_ODDR_fuses(bel)
@@ -2330,11 +2326,7 @@ class Device:
         attr_vals += self.get_in_iologic_attrs(iol_bel)
 
         av = self.set_iologic_attrvals(iol_bel, attr_vals)
-        fuses = []
-        bits = self.chipdb.get_iologic_fuses(iol_bel.x, iol_bel.y, av, iol_bel.idx_str)
-        if bits:
-            fuses.append(CellFuseBits(iol_bel.x, iol_bel.y, bits))
-        return fuses
+        return self.get_iologic_cell_fuses(iol_bel, av)
 
     def get_IDDRC_fuses(self, bel: BelDesc) -> list[CellFuseBits]:
         return self.get_IDDR_fuses(bel)
@@ -2361,11 +2353,7 @@ class Device:
             attr_vals += self.get_in_iologic_attrs(iol_bel)
 
         av = self.set_iologic_attrvals(iol_bel, attr_vals)
-        fuses = []
-        bits = self.chipdb.get_iologic_fuses(iol_bel.x, iol_bel.y, av, iol_bel.idx_str)
-        if bits:
-            fuses.append(CellFuseBits(iol_bel.x, iol_bel.y, bits))
-        return fuses
+        return self.get_iologic_cell_fuses(iol_bel, av)
 
     def get_iob_reg_attrs(self, bel: IologicBelDesc) -> list[AttrVal]:
         """ The registers that nextpnr placed in the IO block (HAS_REG):
@@ -2431,12 +2419,7 @@ class Device:
         attr_vals += self.get_iob_reg_attrs(iol_bel)
 
         av = self.set_iologic_attrvals(iol_bel, attr_vals)
-        fuses = []
-        x, y = self.get_iologic_fuse_cell(iol_bel)
-        bits = self.chipdb.get_iologic_fuses(x, y, av, iol_bel.idx_str)
-        if bits:
-            fuses.append(CellFuseBits(x, y, bits))
-        return fuses
+        return self.get_iologic_cell_fuses(iol_bel, av)
 
     def get_IOLOGICI_EMPTY_fuses(self, bel: BelDesc) -> list[CellFuseBits]:
         return self.get_empty_iologic_fuses(bel)
