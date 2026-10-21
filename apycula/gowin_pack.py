@@ -626,7 +626,13 @@ class ChipDB:
         return get_longval_fuses(self.db, self.get_ttyp(x, y), av, f'IOB{idx_str}')
 
     def get_iologic_attr_val(self, attrval: AttrVal, av: set[tuple[int, int]]):
-        add_attr_val(self.db, 'IOLOGIC', av, attrids.iologic_attrids[attrval.attr], attrids.iologic_attrvals[attrval.val])
+        # numbers for the attributes and values without a name
+        attr, val = attrval.attr, attrval.val
+        if isinstance(attr, str):
+            attr = attrids.iologic_attrids[attr]
+        if isinstance(val, str):
+            val = attrids.iologic_attrvals[val]
+        add_attr_val(self.db, 'IOLOGIC', av, attr, val)
 
     def get_iologic_fuses(self, x: int, y: int, av: set[tuple[int, int]], idx_str: str) -> set[Coord]:
         return get_shortval_fuses(self.db, self.get_ttyp(x, y), av, f'IOLOGIC{idx_str}')
@@ -5388,6 +5394,39 @@ class GW5A(Device):
                  ('PERSISTENT', 'OFF'), ('ODMUX', 'TRIMUX'), ('PADDI', 'PADDI'),
                  ('OPENDRAIN', 'OFF'), ('PULL_STRENGTH', 'MEDIUM'), ('IOB_UNKNOWN51', 'TRIMUX')]
 
+    def handle_iodelay(self, bel: IologicBelDesc) -> list[AttrVal]:
+        """ The GW5A IODELAY: C_STATIC_DLY 0..255, with DYN_DLY_EN the delay
+        from DLYSTEP[7:0], loaded while SDTAP is 0 """
+        iodelay = bel.cell.attrs.get('IODELAY')
+        if iodelay not in {'IN', 'OUT'}:
+            return []
+        cell_parms = bel.cell.parms
+        if iodelay == 'IN':
+            attr_vals = [AttrVal('INDEL', 'ENABLE'), AttrVal(133, 118), AttrVal('IOLOGIC_UNKNOWN91', 98)]
+            dly_attr = 'IOLOGIC_UNKNOWN118'
+            dyn = [AttrVal('IOLOGIC_UNKNOWN77', 'ENABLE'), AttrVal('IOLOGIC_UNKNOWN78', 85),
+                   AttrVal('IOLOGIC_UNKNOWN106', 'ENABLE'),
+                   AttrVal('IOLOGIC_UNKNOWN108', 'INV')]
+        else:
+            attr_vals = [AttrVal('OUTDEL', 'ENABLE'), AttrVal(132, 116), AttrVal(134, 118),
+                         AttrVal('IOLOGIC_UNKNOWN104', 98)]
+            dly_attr = 'IOLOGIC_UNKNOWN119'
+            dyn = [AttrVal('IOLOGIC_UNKNOWN82', 'ENABLE'), AttrVal('IOLOGIC_UNKNOWN83', 85),
+                   AttrVal('IOLOGIC_UNKNOWN105', 'ENABLE'),
+                   AttrVal('IOLOGIC_UNKNOWN107', 'INV')]
+        # the value code of delay d: '1' for 1, 1000 + d from 2 on
+        dly = int(cell_parms.get('C_STATIC_DLY', '0'), 2)
+        if dly == 1:
+            attr_vals.append(AttrVal(dly_attr, '1'))
+        elif dly > 1:
+            attr_vals.append(AttrVal(dly_attr, 1000 + dly))
+        if cell_parms.get('DYN_DLY_EN', 'FALSE') == 'TRUE':
+            attr_vals += dyn + [AttrVal('IOLOGIC_UNKNOWN135', 'TRUE')]
+        # no LSR (the registers in the IO block set them as they need)
+        if not int(bel.cell.attrs.get('HAS_REG', '0'), 2):
+            attr_vals += [AttrVal('LSRIMUX_0', '0'), AttrVal('LSROMUX_0', '0')]
+        return attr_vals
+
     def get_extra_slots(self) -> dict[int, any]:
         return self.extra_slots
 
@@ -6489,7 +6528,7 @@ class GW5A_25A(GW5A):
             attr_vals.append(AttrVal(attr, val))
 
         attr_vals.append(AttrVal('GSR', 'ENGSR'))
-        return attr_vals
+        return attr_vals + self.handle_iodelay(bel)
 
     #==============================
     #========== Clocks
