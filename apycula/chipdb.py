@@ -4932,6 +4932,8 @@ _iologic_inputs =  [(0, 'D'), (1, 'D0'), (2, 'D1'), (3, 'D2'), (4, 'D3'), (5, 'D
                     (36, 'RADDR1'), (37, 'RADDR2'), (38, 'CALIB'), (39, 'DI'), (40, 'SETN'),
                     (41, 'SDTAP'), (42, 'VALUE'), (42, 'CE'), (43, 'DASEL'), (44, 'DASEL0'), (45, 'DASEL1'),
                     (46, 'DAADJ'), (47, 'DAADJ0'), (48, 'DAADJ1')]
+# GW5A: the dynamic delay of the IODELAY
+_gw5a_iologic_inputs = _iologic_inputs + [(54 + i, f'DLYSTEP{i}') for i in range(8)]
 _iologic_outputs = [(0, 'Q'),  (1, 'Q0'), (2, 'Q1'), (3, 'Q2'), (4, 'Q3'), (5, 'Q4'),
                     (6, 'Q5'), (7, 'Q6'), (8, 'Q7'), (9, 'Q8'), (10, 'Q9'), (11, 'Q10'),
                     (12, 'Q11'), (13, 'Q12'), (14, 'Q13'), (15, 'Q14'), (16, 'Q15'),
@@ -5037,6 +5039,8 @@ _gw5_fuse_cell_offset = {
 # the D7 input, the output enable register to the OE wire of the IOB, takes
 # the input register from the Q8 output and the CE from CE0 of the cell with
 # the fuses (the IOB B fuse cell for B). These become extra bel pins.
+# The IODELAY as input delay takes SDTAP and VALUE from other wires than as
+# output delay: SDTAP_IN and VALUE_IN.
 # Needs the portmaps, so it is called after dat_portmap().
 def fill_GW5A_iob_reg_pins(dev):
     for row in range(dev.rows):
@@ -5052,14 +5056,19 @@ def fill_GW5A_iob_reg_pins(dev):
                 iol.portmap['OREG_D'] = iol.portmap['D7']
                 iol.portmap['TREG_D'] = iob.portmap['OE']
                 iol.portmap['IREG_Q'] = iol.portmap['Q8']
+                # an IODELAY as input delay takes SDTAP and VALUE from other
+                # wires than as output delay (SEL0, SEL1)
                 if buf == 'A':
                     iol.portmap['REG_CE'] = 'CE0'
+                    iol.portmap['SDTAP_IN'] = 'D5'
+                    iol.portmap['VALUE_IN'] = 'D6'
                 else:
                     r_off, c_off = tile.bels['IOBB'].fuse_cell_offset
-                    node_name = f'X{row + r_off}Y{col + c_off}/CE0'
-                    add_node(dev, node_name, "IO_I", row, col, 'IOLOGICCE0')
-                    add_node(dev, node_name, "IO_I", row + r_off, col + c_off, 'CE0')
-                    iol.portmap['REG_CE'] = 'IOLOGICCE0'
+                    for port, wire in (('REG_CE', 'CE0'), ('SDTAP_IN', 'B6'), ('VALUE_IN', 'D6')):
+                        node_name = f'X{row + r_off}Y{col + c_off}/{wire}'
+                        add_node(dev, node_name, "IO_I", row, col, f'IOLOGIC{wire}')
+                        add_node(dev, node_name, "IO_I", row + r_off, col + c_off, wire)
+                        iol.portmap[port] = f'IOLOGIC{wire}'
 
 def fill_GW5A_io_bels(dev):
     bels_to_remove = []
@@ -5278,8 +5287,9 @@ def dat_portmap(dat, dev, device):
                         # is the main one.
                         if 'IOBB' in tile.bels:
                             r_off, c_off = tile.bels['IOBB'].fuse_cell_offset
-                            for idx, nam in _iologic_inputs:
-                                w_idx = dat.compat_dict[f'Iologic{buf}In'][idx]
+                            for idx, nam in _gw5a_iologic_inputs:
+                                ins = dat.compat_dict[f'Iologic{buf}In']
+                                w_idx = ins[idx] if idx < len(ins) else -1
                                 if w_idx >= 0:
                                     wire = wnames.wirenames[w_idx]
                                     if buf == 'B':
