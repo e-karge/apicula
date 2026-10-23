@@ -1859,9 +1859,13 @@ class Device:
                 self.chipdb.get_iob_attr_val(AttrVal("TO", "SIG"), av)
         else:
             self.chipdb.get_iob_attr_val(AttrVal("ODMUX_1", "1"), av)
-        # the output enable comes from the register in the IO block
+        # the output enable comes from the register in the IO block,
         if self.has_iob_reg(bel.x, bel.y, bel.idx_str, 'TREG_TYPE'):
             self.chipdb.get_iob_attr_val(AttrVal("TRI_MUX", "TSREG"), av)
+        # or from the output IO logic (ODDR, OSER TX), where nextpnr leaves
+        # OEN unconnected; take the tristate from there (TMDDR)
+        elif net == IO_BEL_NET_NET and not bel.cell.connections.get('OEN'):
+            self.chipdb.get_iob_attr_val(AttrVal("TRI_MUX", "TMDDR"), av)
 
     def has_iob_reg(self, x: int, y: int, idx_str: str, reg_attr: str) -> bool:
         """ Is there a register (IREG_TYPE, OREG_TYPE, TREG_TYPE) in the IO block? """
