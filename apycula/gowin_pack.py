@@ -5607,6 +5607,14 @@ class GW5A(Device):
     def get_DCS_fuses(self, bel: BelDesc) -> list[CellFuseBits]:
         self.error_not_supported_cell_type(bel)
 
+    def get_pll_kvco(self, fclkin_idx: int, fvco: float) -> int:
+        return fclkin_idx // 16
+
+    def get_pll_fldcount(self, fclkin_idx: int, fvco: float) -> int:
+        if fvco > 1400.0:
+            return fclkin_idx + 1
+        return fclkin_idx
+
     def get_pll_attrvals(self, bel: BelDesc) -> set[int]:
         """ PLLA attributes """
         av = set()
@@ -5720,12 +5728,10 @@ class GW5A(Device):
         # XXX internal feedback for now
         fvco = fclkfb * mdiv
         fclkin_idx, icp, r_idx = self.get_pll_pump(fref, fvco)
-        self.chipdb.get_pll_attr_val(AttrVal('KVCO', fclkin_idx // 16), av)
-        if fvco > 1400.0:
-            fclkin_idx += 1
+        self.chipdb.get_pll_attr_val(AttrVal('KVCO', self.get_pll_kvco(fclkin_idx, fvco)), av)
         self.chipdb.get_pll_attr_val(AttrVal('A_ICP_SEL', int(icp)), av)
         self.chipdb.get_pll_attr_val(AttrVal('A_LPF_RES_SEL', f'R{r_idx}'), av)
-        self.chipdb.get_pll_attr_val(AttrVal('FLDCOUNT', fclkin_idx), av)
+        self.chipdb.get_pll_attr_val(AttrVal('FLDCOUNT', self.get_pll_fldcount(fclkin_idx, fvco)), av)
 
         # set other attributes
         attr = 'A_RESET_I_EN'
@@ -6979,6 +6985,53 @@ class GW5AST_138C(GW5A):
                 self.clock_bridge_xy.add((x, y))
 
     #==============================
+    #========== PLL
+    #==============================
+    def get_PLL_fuses(self, bel: BelDesc) -> list[CellFuseBits]:
+        """ The 138C PLL is in the main grid, not in a slot: its fuses are in
+        the PLL tables of the cells from its anchor on, with the PLLA attributes. """
+        mod_bel = self.rename_plla_attrs(bel)
+        av = self.get_pll_attrvals(mod_bel)
+        # the vendor sets no divider for the disabled outputs
+        cell_parms = mod_bel.cell.parms
+        disabled = {attrids.pll_attrids[f'A_ODIV{i}_SEL'] for i in range(7)
+                    if cell_parms.get(f'A_CLKOUT{i}_EN', 'TRUE' if i == 0 else 'FALSE') != 'TRUE'}
+        av -= {code for (attr, _), code in self.chipdb.db.logicinfo['PLL'].items() if attr in disabled}
+        fuses = []
+        for x in range(bel.x, bel.x + 4):
+            bits = self.chipdb.get_pll_fuses(x, bel.y, av)
+            if bits:
+                fuses.append(CellFuseBits(x, bel.y, bits))
+        return fuses
+
+    # The GW5A-25A values: ICP and LPF_RES match the vendor's at VCO 800..1600MHz,
+    # PFD 25..100MHz. KVCO and FLDCOUNT differ, see below.
+    def get_pll_freq_R(self) -> list[tuple[float, float]]:
+        return [(3.24, 72300), (4.79, 48900), (9.22, 25400), (17.09, 13700), (34.08, 6870), (68.05, 3440), (136.1, 1720), (270.95, 864)]
+
+    def get_permitted_pll_freqs(self) -> tuple[float, float, float, float, float]:
+        """ (max_in, max_out, min_out, max_vco, min_vco) """
+        return (800., 1600., 6.25, 1600., 800.)
+
+    def get_pll_coeffs(self, fvco: float) -> tuple[float, float]:
+        """ Returns constants for PLL calculation """
+        K1 = 120
+        if fvco >= 1400.0:
+            K1 = 240
+        C1 = 4.725e-11
+        return (K1, C1)
+
+    def get_pll_kvco(self, fclkin_idx: int, fvco: float) -> int:
+        """ The VCO band (vendor: 2 up to 1350MHz, 3 from 1400MHz on), not the
+        input frequency range. """
+        if fvco >= 1400.0:
+            return 3
+        return 2
+
+    def get_pll_fldcount(self, fclkin_idx: int, fvco: float) -> int:
+        return fclkin_idx
+
+    #==============================
     #========== Pips
     #==============================
     def get_set_spine_enable_table(self, area: str, dest: str) -> str:
@@ -6992,6 +7045,9 @@ class GW5AST_138C(GW5A):
 
     def is_clock_pip(self, tiledata: Tile, src: str, dest: str) -> bool:
         if src[8:].startswith('_BOT') or src[8:].startswith('_TOP'):
+            return True
+        # PLL outputs at the clock MUX, see chipdb.fse_create_grid_plls_138
+        if src.startswith('PLLCLK'):
             return True
         if src not in wnames.clknumbers:
             return False
