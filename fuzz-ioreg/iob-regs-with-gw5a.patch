@@ -1,0 +1,133 @@
+diff --git a/apycula/gowin_pack.py b/apycula/gowin_pack.py
+index b108cb0..0d89fd1 100644
+--- a/apycula/gowin_pack.py
++++ b/apycula/gowin_pack.py
+@@ -2309,28 +2309,83 @@ class Device:
+             fuses.append(CellFuseBits(iol_bel.x, iol_bel.y, bits))
+         return fuses
+ 
+-    def get_IOLOGICI_EMPTY_fuses(self, bel: BelDesc) -> list[CellFuseBits]:
+-        iol_bel = self.make_IologicBelDesc(bel)
+-        attr_vals = self.common_iologic_handler(iol_bel)
++    def get_iob_reg_attrs(self, bel: IologicBelDesc) -> list[AttrVal]:
++        """ The registers that nextpnr placed in the IO block (HAS_REG):
++        IREG_TYPE for the IOLOGICI_EMPTY cell, OREG_TYPE and TREG_TYPE for the
++        IOLOGICO_EMPTY cell, each one of the DFF types. The registers of an IO
++        block share CLK, CE and SET/RESET. """
++        attrs = bel.cell.attrs
++        if not int(attrs.get('HAS_REG', '0'), 2):
++            return []
++        is_in = 'IREG_TYPE' in attrs
++        # DFF[N][S|R|P|C][E] -> (negative edge, CE, DFF|DFFS|DFFR|DFFP|DFFC)
++        reg_types = {}
++        for reg in ('IREG', 'OREG', 'TREG'):
++            typ = attrs.get(f'{reg}_TYPE')
++            if typ:
++                core = typ.replace('DFFN', 'DFF')
++                reg_types[reg] = (typ.startswith('DFFN'), core.endswith('E'), core.rstrip('E'))
++        # nextpnr only combines registers that differ in SET/RESET or PRESET/CLEAR
++        negedge, has_ce, core = next(iter(reg_types.values()))
++        io = 'I' if is_in else 'O'
++        # yosys uses CE = 1 and SET = 0 for the registers with init value 1
++        conns = bel.cell.connections
++        if has_ce and self.pnr.is_vcc_net(conns['CE'][0]):
++            has_ce = False
++        has_sr = any(not self.pnr.is_gnd_net(conns[port][0])
++                     for port in ('SET', 'RESET', 'PRESET', 'CLEAR') if conns.get(port))
+ 
+-        av = self.set_iologic_attrvals(iol_bel, attr_vals)
+-        fuses = []
+-        bits = self.chipdb.get_iologic_fuses(iol_bel.x, iol_bel.y, av, iol_bel.idx_str)
+-        if bits:
+-            fuses.append(CellFuseBits(iol_bel.x, iol_bel.y, bits))
+-        return fuses
++        attr_vals = []
++        if not is_in and 'OREG' in reg_types:
++            attr_vals.append(AttrVal('OUTMODE', 'OREG'))
++        attr_vals.append(AttrVal(f'CLK{io}MUX', 'ENABLE'))
++        if is_in:
++            # only in the GW1N-9C bottom IO B tables
++            attr_vals.append(AttrVal('CLKOMUX_1', '1'))
++        if not has_ce:
++            attr_vals.append(AttrVal(f'CE{io}MUX_1', '1'))
++        if negedge:
++            attr_vals.append(AttrVal(f'CLK{io}MUX_CLK', 'INV'))
++        for reg, (_, _, reg_core) in reg_types.items():
++            regmode = 'INREGMODE' if reg == 'IREG' else 'OUTREGMODE'
++            if negedge:
++                attr_vals.append(AttrVal(f'{reg}_{regmode}', 'FF'))
++            if reg_core in {'DFFS', 'DFFP'}:
++                attr_vals.append(AttrVal(f'{reg}_REGSET', 'SET'))
++        # synchronous set/reset. Without set/reset the LSR is 0 and the vendor
++        # sets SRMODE or not depending on the rest of the design.
++        if has_sr and core in {'DFFS', 'DFFR'}:
++            attr_vals.append(AttrVal('SRMODE', 'LSR_OVER_CE'))
++        # the LSR of the unused direction, and without set/reset
++        attr_vals.append(AttrVal('LSROMUX_0' if is_in else 'LSRIMUX_0', '0'))
++        if not has_sr:
++            attr_vals.append(AttrVal(f'LSR{io}MUX_0', '0'))
++        return attr_vals
+ 
+-    def get_IOLOGICO_EMPTY_fuses(self, bel: BelDesc) -> list[CellFuseBits]:
++    def get_iologic_fuse_cell(self, bel: IologicBelDesc) -> tuple[int, int]:
++        """ (x, y) of the cell with the IOLOGIC fuses of the bel """
++        return bel.x, bel.y
++
++    def get_empty_iologic_fuses(self, bel: BelDesc) -> list[CellFuseBits]:
++        """ IOLOGICI_EMPTY/IOLOGICO_EMPTY: IODELAY and the registers in the IO block """
+         iol_bel = self.make_IologicBelDesc(bel)
+         attr_vals = self.common_iologic_handler(iol_bel)
++        attr_vals += self.get_iob_reg_attrs(iol_bel)
+ 
+         av = self.set_iologic_attrvals(iol_bel, attr_vals)
+         fuses = []
+-        bits = self.chipdb.get_iologic_fuses(iol_bel.x, iol_bel.y, av, iol_bel.idx_str)
++        x, y = self.get_iologic_fuse_cell(iol_bel)
++        bits = self.chipdb.get_iologic_fuses(x, y, av, iol_bel.idx_str)
+         if bits:
+-            fuses.append(CellFuseBits(iol_bel.x, iol_bel.y, bits))
++            fuses.append(CellFuseBits(x, y, bits))
+         return fuses
+ 
++    def get_IOLOGICI_EMPTY_fuses(self, bel: BelDesc) -> list[CellFuseBits]:
++        return self.get_empty_iologic_fuses(bel)
++
++    def get_IOLOGICO_EMPTY_fuses(self, bel: BelDesc) -> list[CellFuseBits]:
++        return self.get_empty_iologic_fuses(bel)
++
+     def get_IOLOGIC_fuses(self, bel: BelDesc) -> list[CellFuseBits]:
+         self.error_not_supported_cell_type(bel)
+ 
+@@ -5291,6 +5346,32 @@ class GW5A(Device):
+     def get_extra_slots(self) -> dict[int, any]:
+         return self.extra_slots
+ 
++    def get_iob_reg_attrs(self, bel: IologicBelDesc) -> list[AttrVal]:
++        """ With an input register in the same IO block, the vendor inverts
++        only the input clock for the negative edge registers. """
++        attr_vals = super().get_iob_reg_attrs(bel)
++        if 'IREG_TYPE' in bel.cell.attrs or not self.has_iob_input_reg(bel.x, bel.y, bel.idx_str):
++            return attr_vals
++        return [av for av in attr_vals if av.attr != 'CLKOMUX_CLK' and not av.attr.endswith('_OUTREGMODE')]
++
++    def has_iob_input_reg(self, x: int, y: int, idx_str: str) -> bool:
++        if not hasattr(self, 'iob_input_reg_bels'):
++            self.iob_input_reg_bels = set()
++            for cell in self.pnr.in_file['modules'][self.pnr.top_module_name]['cells'].values():
++                if cell['type'] == 'IOLOGICI_EMPTY' and int(cell['attributes'].get('HAS_REG', '0'), 2):
++                    self.iob_input_reg_bels.add(cell['attributes']['NEXTPNR_BEL'])
++        return f'X{x}Y{y}/IOLOGIC{idx_str}I' in self.iob_input_reg_bels
++
++    def get_iologic_fuse_cell(self, bel: IologicBelDesc) -> tuple[int, int]:
++        """ The IOLOGIC B fuses are in the cell with the IOB B fuses """
++        x, y = bel.x, bel.y
++        if bel.idx_str == 'B':
++            fuse_cell_offset = self.chipdb.get_iob_fuse_cell_offset(x, y, 'B')
++            if fuse_cell_offset:
++                x += fuse_cell_offset[1]
++                y += fuse_cell_offset[0]
++        return x, y
++
+     def create_pll_slot(self, idx: int):
+         """ Create bitmap for PLL """
+         bitmap = bitmatrix.zeros(8, 35)
