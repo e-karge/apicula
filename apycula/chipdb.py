@@ -4695,6 +4695,9 @@ def set_chip_flags(dev, device):
         dev.chip_flags.append("NEED_BSRAM_RESET_FIX")
         dev.chip_flags.append("NEED_CFGPINS_INVERSION")
         dev.chip_flags.append("HAS_5A_DSP")
+        # IDDR/IDES outputs on Q15.. like the 25A: IDDR Q0/Q1 = F7/OF0 as
+        # the vendor routes them
+        dev.chip_flags.append("HAS_5A_IDES")
 
     if device in {'GW5A-25A'}:
         dev.dcs_prefix = "CLKIN"
@@ -5069,6 +5072,8 @@ _iologic_inputs =  [(0, 'D'), (1, 'D0'), (2, 'D1'), (3, 'D2'), (4, 'D3'), (5, 'D
                     (36, 'RADDR1'), (37, 'RADDR2'), (38, 'CALIB'), (39, 'DI'), (40, 'SETN'),
                     (41, 'SDTAP'), (42, 'VALUE'), (42, 'CE'), (43, 'DASEL'), (44, 'DASEL0'), (45, 'DASEL1'),
                     (46, 'DAADJ'), (47, 'DAADJ0'), (48, 'DAADJ1')]
+# GW5A: the dynamic delay of the IODELAY
+_gw5a_iologic_inputs = _iologic_inputs + [(54 + i, f'DLYSTEP{i}') for i in range(8)]
 _iologic_outputs = [(0, 'Q'),  (1, 'Q0'), (2, 'Q1'), (3, 'Q2'), (4, 'Q3'), (5, 'Q4'),
                     (6, 'Q5'), (7, 'Q6'), (8, 'Q7'), (9, 'Q8'), (10, 'Q9'), (11, 'Q10'),
                     (12, 'Q11'), (13, 'Q12'), (14, 'Q13'), (15, 'Q14'), (16, 'Q15'),
@@ -5168,6 +5173,42 @@ _gw5_fuse_cell_offset = {
             469: (0, 0), 475: (0, 0), 489: (0, 0), 490: (0, 0),
             }
 }
+
+# The registers in the IO blocks don't use the D0, TX, Q4 and CE wires of the
+# IOLOGIC like the GW1N/GW2A do: the vendor connects the output register to
+# the D7 input, the output enable register to the OE wire of the IOB, takes
+# the input register from the Q8 output and the CE from CE0 of the cell with
+# the fuses (the IOB B fuse cell for B). These become extra bel pins.
+# The IODELAY as input delay takes SDTAP and VALUE from other wires than as
+# output delay: SDTAP_IN and VALUE_IN.
+# Needs the portmaps, so it is called after dat_portmap().
+def fill_GW5A_iob_reg_pins(dev):
+    for row in range(dev.rows):
+        for col in range(dev.cols):
+            tile = dev[row, col]
+            if 'IOBB' not in tile.bels:
+                continue
+            for buf in 'AB':
+                iol = tile.bels.get(f'IOLOGIC{buf}')
+                iob = tile.bels.get(f'IOB{buf}')
+                if iol is None or iob is None or 'D7' not in iol.portmap or 'Q8' not in iol.portmap:
+                    continue
+                iol.portmap['OREG_D'] = iol.portmap['D7']
+                iol.portmap['TREG_D'] = iob.portmap['OE']
+                iol.portmap['IREG_Q'] = iol.portmap['Q8']
+                # an IODELAY as input delay takes SDTAP and VALUE from other
+                # wires than as output delay (SEL0, SEL1)
+                if buf == 'A':
+                    iol.portmap['REG_CE'] = 'CE0'
+                    iol.portmap['SDTAP_IN'] = 'D5'
+                    iol.portmap['VALUE_IN'] = 'D6'
+                else:
+                    r_off, c_off = tile.bels['IOBB'].fuse_cell_offset
+                    for port, wire in (('REG_CE', 'CE0'), ('SDTAP_IN', 'B6'), ('VALUE_IN', 'D6')):
+                        node_name = f'X{row + r_off}Y{col + c_off}/{wire}'
+                        add_node(dev, node_name, "IO_I", row, col, f'IOLOGIC{wire}')
+                        add_node(dev, node_name, "IO_I", row + r_off, col + c_off, wire)
+                        iol.portmap[port] = f'IOLOGIC{wire}'
 
 def fill_GW5A_io_bels(dev):
     bels_to_remove = []
@@ -5369,6 +5410,9 @@ def dat_portmap(dat, dev, device):
                             elif nam == 'FCLK':
                                 # dummy Input, we'll make a special pips for it
                                 bel.portmap[nam] = "FCLK"
+                        # CE of the registers in the IO block: the vendor
+                        # routes it to these wires, not to the VALUE input
+                        bel.portmap['CE'] = {'A': "CE0", 'B': "CE1"}[buf]
                         # these inputs for IEM window selection
                         bel.portmap['WINSIZE0'] = {'A':"C6", 'B':"C7"}[buf]
                         bel.portmap['WINSIZE1'] = {'A':"D6", 'B':"D7"}[buf]
@@ -5383,8 +5427,9 @@ def dat_portmap(dat, dev, device):
                         # is the main one.
                         if 'IOBB' in tile.bels:
                             r_off, c_off = tile.bels['IOBB'].fuse_cell_offset
-                            for idx, nam in _iologic_inputs:
-                                w_idx = dat.compat_dict[f'Iologic{buf}In'][idx]
+                            for idx, nam in _gw5a_iologic_inputs:
+                                ins = dat.compat_dict[f'Iologic{buf}In']
+                                w_idx = ins[idx] if idx < len(ins) else -1
                                 if w_idx >= 0:
                                     wire = wnames.wirenames[w_idx]
                                     if buf == 'B':
