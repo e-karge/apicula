@@ -448,6 +448,8 @@ def main():
     chipdb.pll_pads(db, device, pad_locs)
 
     chipdb.dat_portmap(dat, db, device)
+    if chipdb.is_GW5_family(device):
+        chipdb.fill_GW5A_iob_reg_pins(db)
     chipdb.remove_iologic_segment_ends(db)
     chipdb.add_hclk_bels(dat, db, device)
 
