@@ -2269,6 +2269,98 @@ def fse_create_slot_plls(dev, device, fse, dat):
         # Himbaechel node
         dev.nodes.setdefault(f'MPLL{pll_idx}{nam}', (wire_type, set()))[1].add((row, col, f'PLLA{nam}'))
 
+# The GW5AST-138C PLLs are not in slots but in the main grid, each over four
+# cells from its anchor; port wires are at (row, anchor col + PllInDlt), like the
+# 'old_style' GW5A-25A PLLs. The primitive is PLL, not PLLA. Sites by their
+# INS_LOC names.
+_pll138_sites = {
+        'PLL_L[0]': (27, 1),   'PLL_L[1]': (45, 0),   'PLL_L[2]': (63, 0),    'PLL_L[3]': (81, 1),
+        'PLL_R[0]': (27, 177), 'PLL_R[1]': (45, 178), 'PLL_R[2]': (63, 178),  'PLL_R[3]': (81, 177),
+        'PLL_B[0]': (108, 28), 'PLL_B[1]': (108, 32), 'PLL_B[2]': (108, 146), 'PLL_B[3]': (108, 150),
+        }
+# CLKOUT0..6 reach the global clock system through the clock MUX at R54C93 (top
+# sites) or R54C88 (the others). The MUX selects a spine source by a 7 bit
+# code, and each PLL output has a code of its own: the top MUX uses the codes
+# of the bottom one for its PLLs. Codes 1..24 are the PLL inputs the tables
+# know by name (BRPLL0CLK0 = 1, BRPLL0CLK1 = 2 .. TLPLL0CLK3 = 24) - but each
+# name is a different PLL in each MUX. The other codes use the 7th bit of the
+# code, which no table entry has, so these pips are created here.
+_pll138_clk_mux = {27: (54, 93), 45: (54, 93), 63: (54, 88), 81: (54, 88), 108: (54, 88)}
+_pll138_clkout_codes = {
+        'PLL_L[0]': (21, 22, 23, 24, 49, 50, 51), 'PLL_L[1]': (17, 18, 19, 20, 52, 53, 54),
+        'PLL_L[2]': (21, 22, 23, 24, 49, 50, 51), 'PLL_L[3]': (17, 18, 19, 20, 52, 53, 54),
+        'PLL_R[0]': ( 9, 10, 11, 12, 65, 66, 67), 'PLL_R[1]': ( 5,  6,  7,  8, 68, 69, 70),
+        'PLL_R[2]': ( 9, 10, 11, 12, 65, 66, 67), 'PLL_R[3]': ( 5,  6,  7,  8, 68, 69, 70),
+        'PLL_B[0]': (13, 14, 15, 16, 55, 56, 57), 'PLL_B[1]': (58, 59, 60, 61, 62, 63, 64),
+        'PLL_B[2]': ( 1,  2,  3,  4, 71, 72, 73), 'PLL_B[3]': (74, 75, 76, 77, 78, 79, 80),
+        }
+
+def fse_create_grid_plls_138(dev, device, dat):
+    if device not in {'GW5AST-138C'}:
+        return
+    st = dat.gw5aStuff
+    # The clock system joins the equally named MUX inputs of the bridge cells
+    # into one node, but for the PLL outputs they are different signals in
+    # each MUX: start these nodes over.
+    pll_names = {wnames.clknames[i] for i in range(81, 105)}
+    for name in pll_names:
+        if name in dev.nodes:
+            for wire in dev.nodes[name][1]:
+                wire2node.pop(wire, None)
+            del dev.nodes[name]
+    # Replace the named PLL inputs of the spine muxes by one source per code.
+    # The bits of a code: BRPLL0CLK0 is the LSB, BRPLL0CLK1 the next one.
+    for mux_row, mux_col in set(_pll138_clk_mux.values()):
+        codes = {code for site, codes in _pll138_clkout_codes.items()
+                 if _pll138_clk_mux[_pll138_sites[site][0]] == (mux_row, mux_col) for code in codes}
+        for dest, srcs in dev[mux_row, mux_col].clock_pips.items():
+            if 'BRPLL0CLK0' not in srcs:
+                continue
+            (row, lsb), = srcs['BRPLL0CLK0']
+            (_, bit1), = srcs['BRPLL0CLK1']
+            field = [(row, lsb + k * (bit1 - lsb)) for k in range(7)]
+            for name in pll_names:
+                srcs.pop(name, None)
+            for code in codes:
+                bits = {field[k] for k in range(7) if code & (1 << k)}
+                assert bits not in srcs.values(), f"PLL code {code} is taken in {dest}"
+                srcs[f'PLLCLK{code}'] = bits
+        for code in codes:
+            dev.wire_delay[f'PLLCLK{code}'] = 'CENT_SPINE_PCLK'
+
+    def port_wire(row, col, nam, wire_idx, dlt, wire_type):
+        wire = wnames.wirenames[wire_idx]
+        if dlt == 0:
+            return wire
+        # the port is in another cell of the PLL: alias it
+        alias = f'PLL{nam}{wire}'
+        dev.nodes.setdefault(f'X{col}Y{row}/{alias}', (wire_type, {(row, col, alias)}))[1].add((row, col + dlt, wire))
+        return alias
+
+    for site, (row, col) in _pll138_sites.items():
+        pll = dev.extra_func.setdefault((row, col), {}).setdefault('pll', {})
+        pll['type'] = 'PLL'
+        portmap = pll.setdefault('inputs', {})
+        for idx, nam in _pll138_inputs:
+            portmap[nam] = port_wire(row, col, nam, st['PllIn'][idx], st['PllInDlt'][idx], 'PLL_I')
+        portmap = pll.setdefault('outputs', {})
+        for idx, nam in _pll138_outputs:
+            if not nam.startswith('CLKOUT'):
+                portmap[nam] = port_wire(row, col, nam, st['PllOut'][idx], st['PllOutDlt'][idx], 'PLL_O')
+                continue
+            # A clock output is a wire of its own that reaches the clock MUX,
+            # and the logic wire through a pip without fuses (see the 25A
+            # PLLs for why the two can't simply be one node).
+            portmap[nam] = f'MPLL{nam}'
+            dev.wire_delay[portmap[nam]] = 'X0'
+            logic_wire = wnames.wirenames[st['PllOut'][idx]]
+            dev[row, col].pips.setdefault(logic_wire, {}).update({portmap[nam]: set()})
+            mux_row, mux_col = _pll138_clk_mux[row]
+            code = _pll138_clkout_codes[site][int(nam[-1])]
+            node_name = f'PLL138_X{mux_col}PLLCLK{code}'
+            add_node(dev, node_name, 'PLL_O', row, col, portmap[nam])
+            add_node(dev, node_name, 'PLL_O', mux_row, mux_col, f'PLLCLK{code}')
+
 # DHCEN (as I imagine) is an additional control input of the HCLK input
 # multiplexer. We have four input multiplexers - HCLK_IN0, HCLK_IN1, HCLK_IN2,
 # HCLK_IN3 (GW1N-9C with its additional four multiplexers stands separately,
@@ -4692,6 +4784,7 @@ def from_fse(device, fse, dat: Datfile):
     fse_create_diff_types(dev, device)
     fse_create_hclk_nodes(dev, device, fse, dat)
     fse_create_slot_plls(dev, device, fse, dat)
+    fse_create_grid_plls_138(dev, device, dat)
     fse_create_adc(dev, device, fse, dat)
     fse_create_mipi(dev, device, dat)
     fse_create_i3c(dev, device, dat)
@@ -4934,6 +5027,38 @@ _plla_outputs = [(1, 'LOCK'), (10, 'CLKOUT0'), (11, 'CLKOUT1'), (12, 'CLKOUT2'),
                  (14, 'CLKOUT4'), (15, 'CLKOUT5'), (16, 'CLKOUT6'),
                  (24, 'MDRDO0'), (25, 'MDRDO1'), (26, 'MDRDO2'), (27, 'MDRDO3'), (28, 'MDRDO4'),
                  (29, 'MDRDO5'), (30, 'MDRDO6'), (31, 'MDRDO7'), ]
+# GW5AST-138C PLL ports: (PllIn/PllOut index, port). Multi-bit ports are
+# numbered like the PLLA ones (FBDSEL0..5).
+_pll138_inputs = [
+    (0, 'RESET'), (2, 'RESET_I'), (4, 'CLKIN'), (5, 'CLKFB'), (6, 'FBDSEL0'), (7, 'FBDSEL1'),
+    (8, 'FBDSEL2'), (9, 'FBDSEL3'), (10, 'FBDSEL4'), (11, 'FBDSEL5'), (12, 'IDSEL0'),
+    (13, 'IDSEL1'), (14, 'IDSEL2'), (15, 'IDSEL3'), (16, 'IDSEL4'), (17, 'IDSEL5'), (83, 'ICPSEL0'),
+    (84, 'ICPSEL1'), (85, 'ICPSEL2'), (86, 'ICPSEL3'), (87, 'ICPSEL4'), (88, 'LPFRES0'),
+    (89, 'LPFRES1'), (90, 'LPFRES2'), (91, 'PSSEL0'), (92, 'PSSEL1'), (93, 'PSDIR'),
+    (94, 'PSPULSE'), (100, 'PSSEL2'), (101, 'PLLPWD'), (102, 'RESET_O'), (103, 'MDSEL0'),
+    (104, 'MDSEL1'), (105, 'MDSEL2'), (106, 'MDSEL3'), (107, 'MDSEL4'), (108, 'MDSEL5'),
+    (109, 'MDSEL6'), (110, 'MDSEL_FRAC0'), (111, 'MDSEL_FRAC1'), (112, 'MDSEL_FRAC2'),
+    (113, 'ODSEL00'), (114, 'ODSEL01'), (115, 'ODSEL02'), (116, 'ODSEL03'), (117, 'ODSEL04'),
+    (118, 'ODSEL05'), (119, 'ODSEL06'), (120, 'ODSEL0_FRAC0'), (121, 'ODSEL0_FRAC1'),
+    (122, 'ODSEL0_FRAC2'), (123, 'ODSEL10'), (124, 'ODSEL11'), (125, 'ODSEL12'), (126, 'ODSEL13'),
+    (127, 'ODSEL14'), (128, 'ODSEL15'), (129, 'ODSEL16'), (130, 'ODSEL20'), (131, 'ODSEL21'),
+    (132, 'ODSEL22'), (133, 'ODSEL23'), (134, 'ODSEL24'), (135, 'ODSEL25'), (136, 'ODSEL26'),
+    (137, 'ODSEL30'), (138, 'ODSEL31'), (139, 'ODSEL32'), (140, 'ODSEL33'), (141, 'ODSEL34'),
+    (142, 'ODSEL35'), (143, 'ODSEL36'), (144, 'ODSEL40'), (145, 'ODSEL41'), (146, 'ODSEL42'),
+    (147, 'ODSEL43'), (148, 'ODSEL44'), (149, 'ODSEL45'), (150, 'ODSEL46'), (151, 'ODSEL50'),
+    (152, 'ODSEL51'), (153, 'ODSEL52'), (154, 'ODSEL53'), (155, 'ODSEL54'), (156, 'ODSEL55'),
+    (157, 'ODSEL56'), (158, 'ODSEL60'), (159, 'ODSEL61'), (160, 'ODSEL62'), (161, 'ODSEL63'),
+    (162, 'ODSEL64'), (163, 'ODSEL65'), (164, 'ODSEL66'), (165, 'DT00'), (166, 'DT01'),
+    (167, 'DT02'), (168, 'DT03'), (169, 'DT10'), (170, 'DT11'), (171, 'DT12'), (172, 'DT13'),
+    (173, 'DT20'), (174, 'DT21'), (175, 'DT22'), (176, 'DT23'), (177, 'DT30'), (178, 'DT31'),
+    (179, 'DT32'), (180, 'DT33'), (181, 'LPFCAP0'), (182, 'LPFCAP1'), (183, 'ENCLK0'),
+    (184, 'ENCLK1'), (185, 'ENCLK2'), (186, 'ENCLK3'), (187, 'ENCLK4'), (188, 'ENCLK5'),
+    (189, 'ENCLK6'), (190, 'ICPSEL5'), (191, 'SSCPOL'), (192, 'SSCON'), (193, 'SSCMDSEL0'),
+    (194, 'SSCMDSEL1'), (195, 'SSCMDSEL2'), (196, 'SSCMDSEL3'), (197, 'SSCMDSEL4'),
+    (198, 'SSCMDSEL5'), (199, 'SSCMDSEL6'), (200, 'SSCMDSEL_FRAC0'), (201, 'SSCMDSEL_FRAC1'),
+    (202, 'SSCMDSEL_FRAC2'),]
+_pll138_outputs = [(1, 'LOCK'), (10, 'CLKOUT0'), (11, 'CLKOUT1'), (12, 'CLKOUT2'), (13, 'CLKOUT3'),
+                   (14, 'CLKOUT4'), (15, 'CLKOUT5'), (16, 'CLKOUT6')]
 _iologic_inputs =  [(0, 'D'), (1, 'D0'), (2, 'D1'), (3, 'D2'), (4, 'D3'), (5, 'D4'),
                     (6, 'D5'), (7, 'D6'), (8, 'D7'), (9, 'D8'), (10, 'D9'), (11, 'D10'),
                     (12, 'D11'), (13, 'D12'), (14, 'D13'), (15, 'D14'), (16, 'D15'),
